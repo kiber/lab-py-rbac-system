@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from .models import User
-from .auth import SECRET_KEY, ALGORITHM
+from .config import SECRET_KEY, ALGORITHM
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
@@ -28,7 +28,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
-def permission_required(permission_name: str):
+def has_permission(permission_name: str):
     def wrapper(user: User = Depends(get_current_user)):
         user_permissions = [
             perm.name

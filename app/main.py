@@ -1,23 +1,33 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
-from . import models, database, auth, dependencies
+from . import models, database, auth, dependencies, schemas, crud, seed_database
 
 models.Base.metadata.create_all(bind=database.engine)
+seed_database.seed()
 
 app = FastAPI()
 
 @app.post("/register")
-def register(user_data: dependencies.UserCreate, db: Session = Depends(dependencies.get_db)):
+def register(user_data: schemas.UserCreate, db: Session = Depends(dependencies.get_db)):
+    existing_user = db.query(models.User).filter(
+        models.User.username == user_data.username
+    ).first()
+
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+
     hashed = auth.hash_password(user_data.password)
     user = models.User(
         username=user_data.username,
         email=user_data.email,
         password=hashed
     )
+
     db.add(user)
     db.commit()
     db.refresh(user)
+
     return {"message": "User created"}
 
 @app.post("/login")
@@ -30,5 +40,46 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return {"access_token": token, "token_type": "bearer"}
 
 @app.get("/protected")
-def protected_route(permission: bool = Depends(dependencies.permission_required("read_data"))):
+def protected_route(permission: bool = Depends(dependencies.has_permission("read_data"))):
     return {"message": "You have access to this protected route"}
+
+# Start - Permission Endpoints
+@app.post("/permissions/", response_model=schemas.PermissionResponse)
+def create_permission(permission: schemas.PermissionCreate, db: Session = Depends(dependencies.get_db)):
+    return crud.create_permission(db, permission.name)
+
+@app.get("/permissions/", response_model=list[schemas.PermissionResponse])
+def list_permissions(db: Session = Depends(dependencies.get_db)):
+    return crud.get_permissions(db)
+
+@app.delete("/permissions/{permission_id}")
+def delete_permission(permission_id: int, db: Session = Depends(dependencies.get_db)):
+    crud.delete_permission(db, permission_id)
+    return {"message": "Permission deleted"}
+# End - Permission Endpoints
+
+# Start - Role Endpoints
+@app.post("/roles/", response_model=schemas.RoleResponse)
+def create_role(role: schemas.RoleCreate, db: Session = Depends(dependencies.get_db)):
+    return crud.create_role(db, role.name)
+
+@app.get("/roles/", response_model=list[schemas.RoleResponse])
+def list_roles(db: Session = Depends(dependencies.get_db)):
+    return crud.get_roles(db)
+
+@app.delete("/roles/{role_id}")
+def delete_role(role_id: int, db: Session = Depends(dependencies.get_db)):
+    crud.delete_role(db, role_id)
+    return {"message": "Role deleted"}
+
+@app.put("/roles/{role_id}/permissions")
+def assign_permissions(role_id: int, data: schemas.AssignPermission, db: Session = Depends(dependencies.get_db)):
+    return crud.assign_permissions_to_role(db, role_id, data.permission_ids)
+# End - Role Endpoints
+
+# Start - Assign Role to User
+@app.put("/users/{user_id}/roles")
+def assign_roles(user_id: int, data: schemas.AssignRole, db: Session = Depends(dependencies.get_db)):
+    return crud.assign_roles_to_user(db, user_id, data.role_ids)
+# End - Assign Role to User
+
