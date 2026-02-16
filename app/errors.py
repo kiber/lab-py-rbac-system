@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -32,16 +33,22 @@ def register_exception_handlers(app: FastAPI) -> None:
         else:
             payload = _build_error_payload("http_error", "Request failed", detail)
 
-        return JSONResponse(status_code=exc.status_code, content={"error": payload})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=jsonable_encoder({"error": payload}),
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_: Request, exc: RequestValidationError):
         payload = _build_error_payload(
             "validation_error",
             "Request validation failed",
-            exc.errors(),
+            jsonable_encoder(exc.errors()),
         )
-        return JSONResponse(status_code=422, content={"error": payload})
+        return JSONResponse(
+            status_code=422,
+            content=jsonable_encoder({"error": payload}),
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_: Request, __: Exception):
@@ -49,4 +56,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             "internal_server_error",
             "An unexpected error occurred",
         )
-        return JSONResponse(status_code=500, content={"error": payload})
+        return JSONResponse(
+            status_code=500,
+            content=jsonable_encoder({"error": payload}),
+        )

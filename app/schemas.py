@@ -26,6 +26,16 @@ class RoleResponse(RoleBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    is_active: bool
+    roles: List[RoleResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
@@ -46,6 +56,15 @@ class AssignPermission(BaseModel):
 
 class AssignRole(BaseModel):
     role_ids: List[int]
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
 
 
 class ErrorDetail(BaseModel):
