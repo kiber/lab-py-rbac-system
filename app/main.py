@@ -1,8 +1,10 @@
-from fastapi import Depends, FastAPI, status
-from sqlalchemy.orm import Session
+from fastapi import Depends, FastAPI
 from fastapi.security import OAuth2PasswordRequestForm
-from . import auth, crud, database, dependencies, models, schemas, seed_database
-from .errors import raise_api_error, register_exception_handlers
+from sqlalchemy.orm import Session
+
+from . import database, dependencies, models, schemas, seed_database
+from .errors import register_exception_handlers
+from .services import auth_service, role_service, user_service
 
 models.Base.metadata.create_all(bind=database.engine)
 seed_database.seed()
@@ -23,38 +25,7 @@ def error_responses(*status_codes: int) -> dict[int, dict]:
     responses=error_responses(409, 422, 500),
 )
 def register(user_data: schemas.UserCreate, db: Session = Depends(dependencies.get_db)):
-    existing_user = db.query(models.User).filter(
-        models.User.username == user_data.username
-    ).first()
-    existing_email = db.query(models.User).filter(
-        models.User.email == user_data.email
-    ).first()
-
-    if existing_user:
-        raise_api_error(
-            status_code=status.HTTP_409_CONFLICT,
-            code="username_exists",
-            message="Username already registered",
-        )
-    if existing_email:
-        raise_api_error(
-            status_code=status.HTTP_409_CONFLICT,
-            code="email_exists",
-            message="Email already registered",
-        )
-
-    hashed = auth.hash_password(user_data.password)
-    user = models.User(
-        username=user_data.username,
-        email=user_data.email,
-        password=hashed
-    )
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return {"message": "User created"}
+    return user_service.register_user(db, user_data)
 
 @app.post(
     "/login",
@@ -62,16 +33,8 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(dependencies.g
     responses=error_responses(401, 422, 500),
 )
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(dependencies.get_db)):
-    user = db.query(models.User).filter(models.User.username == form_data.username).first()
-    if not user or not auth.verify_password(form_data.password, user.password):
-        raise_api_error(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="invalid_credentials",
-            message="Invalid credentials",
-        )
-
-    token = auth.create_access_token({"sub": user.username})
-    return {"access_token": token, "token_type": "bearer"}
+    user = auth_service.authenticate_user(db, form_data.username, form_data.password)
+    return auth_service.create_token_response(user)
 
 @app.get(
     "/protected",
@@ -88,7 +51,7 @@ def protected_route(permission: bool = Depends(dependencies.has_permission("read
     responses=error_responses(409, 422, 500),
 )
 def create_permission(permission: schemas.PermissionCreate, db: Session = Depends(dependencies.get_db)):
-    return crud.create_permission(db, permission.name)
+    return role_service.create_permission(db, permission.name)
 
 @app.get(
     "/permissions/",
@@ -96,7 +59,7 @@ def create_permission(permission: schemas.PermissionCreate, db: Session = Depend
     responses=error_responses(500),
 )
 def list_permissions(db: Session = Depends(dependencies.get_db)):
-    return crud.get_permissions(db)
+    return role_service.list_permissions(db)
 
 @app.delete(
     "/permissions/{permission_id}",
@@ -104,7 +67,7 @@ def list_permissions(db: Session = Depends(dependencies.get_db)):
     responses=error_responses(404, 422, 500),
 )
 def delete_permission(permission_id: int, db: Session = Depends(dependencies.get_db)):
-    crud.delete_permission(db, permission_id)
+    role_service.delete_permission(db, permission_id)
     return {"message": "Permission deleted"}
 # End - Permission Endpoints
 
@@ -115,7 +78,7 @@ def delete_permission(permission_id: int, db: Session = Depends(dependencies.get
     responses=error_responses(409, 422, 500),
 )
 def create_role(role: schemas.RoleCreate, db: Session = Depends(dependencies.get_db)):
-    return crud.create_role(db, role.name)
+    return role_service.create_role(db, role.name)
 
 @app.get(
     "/roles/",
@@ -123,7 +86,7 @@ def create_role(role: schemas.RoleCreate, db: Session = Depends(dependencies.get
     responses=error_responses(500),
 )
 def list_roles(db: Session = Depends(dependencies.get_db)):
-    return crud.get_roles(db)
+    return role_service.list_roles(db)
 
 @app.delete(
     "/roles/{role_id}",
@@ -131,7 +94,7 @@ def list_roles(db: Session = Depends(dependencies.get_db)):
     responses=error_responses(404, 422, 500),
 )
 def delete_role(role_id: int, db: Session = Depends(dependencies.get_db)):
-    crud.delete_role(db, role_id)
+    role_service.delete_role(db, role_id)
     return {"message": "Role deleted"}
 
 @app.put(
@@ -140,7 +103,7 @@ def delete_role(role_id: int, db: Session = Depends(dependencies.get_db)):
     responses=error_responses(400, 404, 422, 500),
 )
 def assign_permissions(role_id: int, data: schemas.AssignPermission, db: Session = Depends(dependencies.get_db)):
-    return crud.assign_permissions_to_role(db, role_id, data.permission_ids)
+    return role_service.assign_permissions_to_role(db, role_id, data.permission_ids)
 # End - Role Endpoints
 
 # Start - Assign Role to User
@@ -150,5 +113,5 @@ def assign_permissions(role_id: int, data: schemas.AssignPermission, db: Session
     responses=error_responses(400, 404, 422, 500),
 )
 def assign_roles(user_id: int, data: schemas.AssignRole, db: Session = Depends(dependencies.get_db)):
-    return crud.assign_roles_to_user(db, user_id, data.role_ids)
+    return user_service.assign_roles_to_user(db, user_id, data.role_ids)
 # End - Assign Role to User
