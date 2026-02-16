@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
-from typing import List
+from typing import Any, List
 
 class PermissionBase(BaseModel):
     name: str
@@ -46,3 +46,13 @@ class AssignPermission(BaseModel):
 
 class AssignRole(BaseModel):
     role_ids: List[int]
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    details: Any | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail

@@ -1,8 +1,10 @@
-from fastapi import Depends, HTTPException
+from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+
 from .database import SessionLocal
+from .errors import raise_api_error
 from .models import User
 from .config import SECRET_KEY, ALGORITHM
 
@@ -16,16 +18,23 @@ def get_db():
         db.close()
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(status_code=401, detail="Invalid credentials")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
     except JWTError:
-        raise credentials_exception
+        raise_api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="invalid_token",
+            message="Invalid credentials",
+        )
 
     user = db.query(User).filter(User.username == username).first()
     if user is None:
-        raise credentials_exception
+        raise_api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="invalid_credentials",
+            message="Invalid credentials",
+        )
     return user
 
 def has_permission(permission_name: str):
@@ -36,6 +45,10 @@ def has_permission(permission_name: str):
             for perm in role.permissions
         ]
         if permission_name not in user_permissions:
-            raise HTTPException(status_code=403, detail="Permission denied")
+            raise_api_error(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="permission_denied",
+                message="Permission denied",
+            )
         return True
     return wrapper

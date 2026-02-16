@@ -1,21 +1,36 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, FastAPI, status
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
-from . import models, database, auth, dependencies, schemas, crud, seed_database
+from . import auth, crud, database, dependencies, models, schemas, seed_database
+from .errors import raise_api_error, register_exception_handlers
 
 models.Base.metadata.create_all(bind=database.engine)
 seed_database.seed()
 
 app = FastAPI()
+register_exception_handlers(app)
 
 @app.post("/register")
 def register(user_data: schemas.UserCreate, db: Session = Depends(dependencies.get_db)):
     existing_user = db.query(models.User).filter(
         models.User.username == user_data.username
     ).first()
+    existing_email = db.query(models.User).filter(
+        models.User.email == user_data.email
+    ).first()
 
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="username_exists",
+            message="Username already registered",
+        )
+    if existing_email:
+        raise_api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="email_exists",
+            message="Email already registered",
+        )
 
     hashed = auth.hash_password(user_data.password)
     user = models.User(
@@ -34,7 +49,11 @@ def register(user_data: schemas.UserCreate, db: Session = Depends(dependencies.g
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(dependencies.get_db)):
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
     if not user or not auth.verify_password(form_data.password, user.password):
-        raise HTTPException(status_code=400, detail="Invalid credentials")
+        raise_api_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="invalid_credentials",
+            message="Invalid credentials",
+        )
 
     token = auth.create_access_token({"sub": user.username})
     return {"access_token": token, "token_type": "bearer"}
@@ -82,4 +101,3 @@ def assign_permissions(role_id: int, data: schemas.AssignPermission, db: Session
 def assign_roles(user_id: int, data: schemas.AssignRole, db: Session = Depends(dependencies.get_db)):
     return crud.assign_roles_to_user(db, user_id, data.role_ids)
 # End - Assign Role to User
-
